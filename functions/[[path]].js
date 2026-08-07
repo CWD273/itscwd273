@@ -29,9 +29,9 @@ export async function onRequest(context) {
     */
 
     const domains = [
-        "example1.com",
-        "example2.com",
-        "example3.com"
+        "ftv.itscwd273.workers.dev",
+        "ftv.r5hmg295fg.workers.dev",
+        "ftv.cwd273tech.workers.dev"
     ];
 
 
