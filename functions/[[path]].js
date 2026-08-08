@@ -4,51 +4,40 @@ export async function onRequest(context) {
     const requestUrl = new URL(request.url);
 
     const hostname = requestUrl.hostname;
-
     const parts = hostname.split(".");
 
     const subdomain = parts.length > 2
         ? parts[0]
         : "";
 
-
     /*
-        The path is intentionally ignored.
+        Ignore the incoming path completely.
 
         Example:
 
-        https://mysite.pages.dev/?id=ch1
+        https://mysite.pages.dev/anything/here?id=ch1
 
         becomes:
 
-        https://destination.example/?id=ch1
+        https://destination/?id=ch1
     */
 
     const queryString = requestUrl.search;
 
 
     /*
-        Cache based only on the subdomain.
+        Cache key.
 
-        This means:
-
-        ?id=ch1
-        ?id=ch2
-        ?id=ch3
-
-        all use the same cached destination for that
-        subdomain.
-
-        If you want each ID to have its own cached
-        destination, change this to include the query
-        parameter.
+        Include the query string because different IDs
+        may represent different streams.
     */
 
-    const cacheKey = `subdomain:${subdomain}`;
+    const cacheKey =
+        `${subdomain}:${queryString}`;
 
 
     /*
-        Check KV first.
+        Check KV cache.
     */
 
     if (env.REDIRECT_CACHE) {
@@ -57,13 +46,6 @@ export async function onRequest(context) {
             await env.REDIRECT_CACHE.get(cacheKey);
 
         if (cached) {
-
-            /*
-                The cached value is the destination
-                domain only.
-
-                Reattach the original query string.
-            */
 
             const target =
                 `https://${cached}${queryString}`;
@@ -77,7 +59,7 @@ export async function onRequest(context) {
 
 
     /*
-        Add your destination domains here.
+        Destination servers.
     */
 
     const domains = [
@@ -95,33 +77,12 @@ export async function onRequest(context) {
 
         let target;
 
-        /*
-            If the request has a subdomain:
-
-            ch1.mysite.pages.dev/?id=abc
-
-            becomes:
-
-            https://ch1.ftv.itscwd273.workers.dev/?id=abc
-
-        */
-
         if (subdomain) {
 
             target =
                 `https://${subdomain}.${domain}${queryString}`;
 
         } else {
-
-            /*
-                Root domain:
-
-                mysite.pages.dev/?id=abc
-
-                becomes:
-
-                https://ftv.itscwd273.workers.dev/?id=abc
-            */
 
             target =
                 `https://${domain}${queryString}`;
@@ -130,57 +91,142 @@ export async function onRequest(context) {
 
         try {
 
+            /*
+                Use GET instead of HEAD.
+
+                The destination streams apparently don't
+                support HEAD correctly.
+            */
+
             const response =
                 await fetch(target, {
-                    method: "HEAD",
+                    method: "GET",
                     redirect: "manual"
                 });
 
 
+            console.log(
+                `Tested ${target} -> ${response.status}`
+            );
+
+
             /*
-                A successful response means this
-                destination is available.
+                Only consider successful responses.
             */
 
             if (
                 response.status >= 200 &&
-                response.status < 400
+                response.status < 300
             ) {
 
                 /*
-                    Cache ONLY the domain.
-
-                    Query parameters are intentionally
-                    not cached.
+                    Check Content-Type first.
                 */
 
-                if (env.REDIRECT_CACHE) {
+                const contentType =
+                    response.headers.get("content-type") || "";
 
-                    await env.REDIRECT_CACHE.put(
-                        cacheKey,
+
+                /*
+                    If it identifies itself as an HLS
+                    playlist, accept it immediately.
+                */
+
+                if (
+                    contentType.includes("mpegurl") ||
+                    contentType.includes("m3u8") ||
+                    contentType.includes("application/x-mpegURL")
+                ) {
+
+                    const cacheValue =
                         subdomain
                             ? `${subdomain}.${domain}`
-                            : domain,
-                        {
-                            expirationTtl: 600
-                        }
+                            : domain;
+
+
+                    if (env.REDIRECT_CACHE) {
+
+                        await env.REDIRECT_CACHE.put(
+                            cacheKey,
+                            cacheValue,
+                            {
+                                expirationTtl: 600
+                            }
+                        );
+                    }
+
+
+                    return Response.redirect(
+                        target,
+                        302
                     );
                 }
 
 
-                return Response.redirect(
-                    target,
-                    302
-                );
+                /*
+                    Some servers incorrectly return
+                    text/plain for an M3U8.
+
+                    Read a small amount of the body and
+                    check for #EXTM3U.
+                */
+
+                const reader =
+                    response.body?.getReader();
+
+                if (reader) {
+
+                    const { value } =
+                        await reader.read();
+
+                    reader.cancel();
+
+
+                    if (value) {
+
+                        const text =
+                            new TextDecoder()
+                                .decode(value);
+
+
+                        if (
+                            text.includes("#EXTM3U")
+                        ) {
+
+                            const cacheValue =
+                                subdomain
+                                    ? `${subdomain}.${domain}`
+                                    : domain;
+
+
+                            if (env.REDIRECT_CACHE) {
+
+                                await env.REDIRECT_CACHE.put(
+                                    cacheKey,
+                                    cacheValue,
+                                    {
+                                        expirationTtl: 600
+                                    }
+                                );
+                            }
+
+
+                            return Response.redirect(
+                                target,
+                                302
+                            );
+                        }
+                    }
+                }
             }
 
 
-        } catch {
+        } catch (error) {
 
-            /*
-                Destination failed.
-                Try the next domain.
-            */
+            console.log(
+                `Failed ${target}:`,
+                error
+            );
 
             continue;
         }
@@ -188,7 +234,7 @@ export async function onRequest(context) {
 
 
     /*
-        None of the destinations worked.
+        Nothing worked.
     */
 
     return new Response(
