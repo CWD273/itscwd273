@@ -1,49 +1,45 @@
 export async function onRequest(context) {
-    const { request } = context;
-    const requestUrl = new URL(request.url);
-    const path = requestUrl.pathname;
-    const queryString = requestUrl.search;
-    const domains = [
-        "ftv.itscwd273.workers.dev",
-        "ftv.r5hmg295fg.workers.dev",
-        "ftv.cwd273tech.workers.dev"
-    ];
+  const { request } = context;
+  const url = new URL(request.url);
+  
+  const searchParams = url.search; 
+  const pathname = url.pathname;   
 
-    for (const domain of domains) {
-        const target = `https://${domain}${path}${queryString}`;
+  // Target domains to check
+  const targetDomains = [
+    'https://ftv.itscwd273.workers.dev',
+    'https://ftv.r5hmg295fg.workers.dev',
+    'https://ftv.cwd273tech.workers.dev'
+  ];
 
-        try {
-            const response = await fetch(target, {
-                method: "GET",
-                redirect: "manual"
-            });
+  let chosenDomain = 'https://ftv.itscwd273.workers.dev';
 
-            console.log(`TEST ${target} -> ${response.status}`);
-
-            // If the worker itself redirected (3xx), follow its Location header
-            // straight to the final destination instead of bouncing through
-            // the worker URL again.
-            if (response.status >= 300 && response.status < 400) {
-                const location = response.headers.get("location");
-                if (location) {
-                    console.log(`FOLLOW ${target} -> ${location}`);
-                    return Response.redirect(location, 302);
-                }
-                // No Location header despite a 3xx status; fall back to
-                // redirecting to the worker URL itself.
-                return Response.redirect(target, 302);
-            }
-
-            // A plain 2xx means the worker responded successfully itself.
-            if (response.status >= 200 && response.status < 300) {
-                return Response.redirect(target, 302);
-            }
-        } catch (error) {
-            console.log(`ERROR ${target}`, error);
-        }
+  for (const domain of targetDomains) {
+    try {
+      // Sends a HEAD request to the exact same path and query strings
+      const response = await fetch(`${domain}${pathname}${searchParams}`, { 
+        method: 'HEAD', 
+        redirect: 'manual',
+        headers: { 'User-Agent': 'Cloudflare-Pages-Redirector' }
+      });
+      
+      // Match your custom header criteria here
+      if (response.headers.get('x-redirect-ready') === 'true') {
+        chosenDomain = domain;
+        break; 
+      }
+    } catch (error) {
+      console.error(`Error checking ${domain}:`, error);
     }
+  }
 
-    return new Response("No destination worked", {
-        status: 404
-    });
+  // Build final URL and return 302
+  const destinationUrl = `${chosenDomain}${pathname}${searchParams}`;
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': destinationUrl,
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    }
+  });
 }
