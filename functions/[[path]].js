@@ -2,30 +2,27 @@ export async function onRequest(context) {
   const { request } = context;
   const url = new URL(request.url);
   
-  const searchParams = url.search; 
-  const pathname = url.pathname;   
+  const searchParams = url.search; // Captures ?id=123
 
-  // 1. Put your target domains managed by Cloudflare Workers here
+  // Define target workers (DO NOT leave a trailing slash)
   const targetDomains = [
-        'https://ftv.itscwd273.workers.dev',
-        'https://ftv.r5hmg295fg.workers.dev',
-        'https://ftv.cwd273tech.workers.dev'
+    'https://workers.dev',
+    'https://workers.dev'
   ];
 
   let chosenDomain = null;
 
   for (const domain of targetDomains) {
     try {
-      // We switch to 'follow' so internal routing loops don't crash the engine
-      const response = await fetch(`${domain}${pathname}${searchParams}`, { 
+      // Direct health-check to the base domain containing the parameters
+      const checkUrl = `${domain}/${searchParams}`;
+      
+      const response = await fetch(checkUrl, { 
         method: 'HEAD', 
         redirect: 'follow', 
-        headers: { 
-          'User-Agent': 'Cloudflare-Pages-Redirector'
-        }
+        headers: { 'User-Agent': 'Cloudflare-Pages-Redirector' }
       });
       
-      // Match the validation marker set in Step 1
       if (response.headers.get('x-redirect-ready') === 'true' || response.status === 200) {
         chosenDomain = domain;
         break; 
@@ -35,19 +32,21 @@ export async function onRequest(context) {
     }
   }
 
-  // 2. Clear browser error handling: output visual debugging if both workers miss
+  // Fallback engine execution block if workers fail
   if (!chosenDomain) {
     return new Response(
-      `Engine Fail: Target Workers down or missing configuration headers. Checked path: ${pathname}`, 
+      `<h1>Configuration Error</h1><p>No backend targets were ready to accept this profile pattern.</p>`, 
       {
         status: 502,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' } // Declaring HTML prevents text downloads
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
       }
     );
   }
 
-  // 3. Build destination URL and issue the clean 302 redirect
-  const destinationUrl = `${chosenDomain}${pathname}${searchParams}`;
+  // Construct precise path payload safely
+  const destinationUrl = `${chosenDomain}/${searchParams}`;
+
+  // Return real raw 302 Header. Browsers will immediately break out and move.
   return new Response(null, {
     status: 302,
     headers: {
