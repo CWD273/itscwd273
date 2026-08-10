@@ -7,8 +7,9 @@ export async function onRequest(context) {
 
   // 1. Put your target domains managed by Cloudflare Workers here
   const targetDomains = [
-    'https://domain-a.com',
-    'https://domain-b.net'
+        'https://ftv.itscwd273.workers.dev',
+        'https://ftv.r5hmg295fg.workers.dev',
+        'https://ftv.cwd273tech.workers.dev'
   ];
 
   let chosenDomain = null;
