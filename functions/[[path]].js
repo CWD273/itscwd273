@@ -6,8 +6,9 @@ export async function onRequest(context) {
 
   // Define target workers (DO NOT leave a trailing slash)
   const targetDomains = [
-    'https://workers.dev',
-    'https://workers.dev'
+"ftv.itscwd273.workers.dev",
+        "ftv.r5hmg295fg.workers.dev",
+        "ftv.cwd273tech.workers.dev"
   ];
 
   let chosenDomain = null;
