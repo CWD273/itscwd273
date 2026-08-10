@@ -5,35 +5,47 @@ export async function onRequest(context) {
   const searchParams = url.search; 
   const pathname = url.pathname;   
 
-  // Target domains to check
+  // 1. Put your target domains managed by Cloudflare Workers here
   const targetDomains = [
-    'https://ftv.itscwd273.workers.dev',
-    'https://ftv.r5hmg295fg.workers.dev',
-    'https://ftv.cwd273tech.workers.dev'
+    'https://domain-a.com',
+    'https://domain-b.net'
   ];
 
-  let chosenDomain = 'https://ftv.itscwd273.workers.dev';
+  let chosenDomain = null;
 
   for (const domain of targetDomains) {
     try {
-      // Sends a HEAD request to the exact same path and query strings
+      // We switch to 'follow' so internal routing loops don't crash the engine
       const response = await fetch(`${domain}${pathname}${searchParams}`, { 
         method: 'HEAD', 
-        redirect: 'manual',
-        headers: { 'User-Agent': 'Cloudflare-Pages-Redirector' }
+        redirect: 'follow', 
+        headers: { 
+          'User-Agent': 'Cloudflare-Pages-Redirector'
+        }
       });
       
-      // Match your custom header criteria here
-      if (response.headers.get('x-redirect-ready') === 'true') {
+      // Match the validation marker set in Step 1
+      if (response.headers.get('x-redirect-ready') === 'true' || response.status === 200) {
         chosenDomain = domain;
         break; 
       }
     } catch (error) {
-      console.error(`Error checking ${domain}:`, error);
+      console.error(`Error connecting to target worker ${domain}:`, error);
     }
   }
 
-  // Build final URL and return 302
+  // 2. Clear browser error handling: output visual debugging if both workers miss
+  if (!chosenDomain) {
+    return new Response(
+      `Engine Fail: Target Workers down or missing configuration headers. Checked path: ${pathname}`, 
+      {
+        status: 502,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' } // Declaring HTML prevents text downloads
+      }
+    );
+  }
+
+  // 3. Build destination URL and issue the clean 302 redirect
   const destinationUrl = `${chosenDomain}${pathname}${searchParams}`;
   return new Response(null, {
     status: 302,
